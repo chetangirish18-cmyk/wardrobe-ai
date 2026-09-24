@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WARDROBE. · Your Personal Stylist</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="home-page">
+    <nav class="navbar">
+        <a href="/" class="logo">WARDROBE.</a>
+        <div class="nav-actions">
+            <a href="/wardrobe" class="nav-link">My Wardrobe</a>
+            <a href="/add" class="nav-cta">Add Clothes <span>+</span></a>
+            <span id="navUserPhone" class="nav-user"></span>
+            <button id="logoutButton" class="nav-link nav-logout">Log out</button>
+        </div>
+    </nav>
+
+    <main class="home-main">
+        <section class="hero-editorial">
+            <div class="hero-copy">
+                <p class="eyebrow">YOUR DIGITAL CLOSET</p>
+                <h1>Get dressed.<br><em>Without the guesswork.</em></h1>
+                <p class="hero-subtitle">A smarter way to organise what you own and discover what to wear next — built around your wardrobe.</p>
+                <div class="hero-cta-group">
+                    <a href="/wardrobe" class="primary-button hero-button">Open my wardrobe <span>→</span></a>
+                    <a href="/add" class="secondary-button hero-button">Add a piece</a>
+                </div>
+            </div>
+            <div class="hero-stack" aria-hidden="true">
+                <div class="hero-card hero-card-back"><span>01</span><b>COLLECTION</b></div>
+                <div class="hero-card hero-card-mid"><span>02</span><b>STYLE</b></div>
+                <div class="hero-card hero-card-front"><span>03</span><b>YOUR FIT</b><small>AI · WEATHER · OCCASION</small></div>
+            </div>
+        </section>
+
+        <section class="home-command">
+            <div><p class="eyebrow">YOUR CLOSET / AT A GLANCE</p><h2>A quieter way to get dressed.</h2><p>Open the stylist when you want three fresh looks, or use your closet to explore favourites, history and your personal style DNA.</p></div>
+            <div class="home-metrics"><div><strong id="homeTotal">—</strong><span>pieces</span></div><div><strong id="homeReady">—</strong><span>ready</span></div><div><strong id="homeFav">—</strong><span>favourites</span></div></div>
+            <a href="/wardrobe#stylist" class="primary-button">Style me today <span>→</span></a>
+        </section>
+
+        <section class="feature-strip">
+            <article><span>01</span><h3>Know your closet</h3><p>Keep every piece, colour and category in one clean space.</p></article>
+            <article><span>02</span><h3>Dress for today</h3><p>Get a weather-aware outfit based on the occasion you choose.</p></article>
+            <article><span>03</span><h3>Build your history</h3><p>Mark what you actually wore and make your wardrobe smarter over time.</p></article>
+        </section>
+    </main>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

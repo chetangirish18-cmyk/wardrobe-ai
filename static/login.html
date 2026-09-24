@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in · WARDROBE.</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="auth-page">
+<nav class="navbar auth-nav"><a href="/login" class="logo">WARDROBE.</a></nav>
+<main class="auth-main">
+  <section class="auth-card">
+    <div class="auth-brand-mark">✦</div>
+    <p class="eyebrow">YOUR DIGITAL CLOSET</p>
+    <h1 id="authTitle">Welcome back.</h1>
+    <p class="auth-subtitle" id="authSubtitle">Sign in with your mobile number and password to access your private wardrobe.</p>
+
+    <div class="auth-tabs" role="tablist" aria-label="Account access">
+      <button id="loginTab" class="auth-tab active" type="button">Log in</button>
+      <button id="signupTab" class="auth-tab" type="button">Create account</button>
+    </div>
+
+    <form id="authForm" class="auth-form">
+      <label for="phone">Mobile number</label>
+      <div class="phone-field"><span>+91</span><input id="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="98765 43210" autocomplete="tel" required></div>
+
+      <label for="password">Password</label>
+      <input id="password" type="password" minlength="8" maxlength="128" placeholder="At least 8 characters" autocomplete="current-password" required>
+
+      <div id="confirmWrap" style="display:none">
+        <label for="confirmPassword">Confirm password</label>
+        <input id="confirmPassword" type="password" minlength="8" maxlength="128" placeholder="Enter password again" autocomplete="new-password">
+      </div>
+
+      <button id="authSubmit" class="primary-button auth-submit" type="submit">Log in <span>→</span></button>
+    </form>
+
+    <p id="authMessage" class="auth-message"></p>
+    <p class="auth-note">Your wardrobe is private to your account. Other users cannot see your clothes.</p>
+  </section>
+  <div class="auth-side-copy"><span>WARDROBE / 01</span><strong>One closet.<br><em>Your style.</em></strong><p>Every account gets its own private collection, history and recommendations.</p></div>
+</main>
+<script src="/static/script.js"></script>
+</body>
+</html>

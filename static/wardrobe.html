@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Wardrobe · WARDROBE.</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="navbar">
+    <a href="/" class="logo">WARDROBE.</a>
+    <div class="nav-actions">
+        <a href="#stylist" class="nav-link">Stylist</a>
+        <a href="#history" class="nav-link">History</a>
+        <a href="#style-dna" class="nav-link">Style DNA</a>
+        <a href="/" class="nav-link">Home</a>
+        <a href="/add" class="nav-cta">Add piece <span>+</span></a>
+        <span id="navUserPhone" class="nav-user"></span>
+        <button id="logoutButton" class="nav-link nav-logout">Log out</button>
+    </div>
+</nav>
+
+<main class="wardrobe-page">
+    <div class="page-heading">
+        <div><p class="eyebrow">YOUR DIGITAL CLOSET</p><h1>My Wardrobe</h1><p class="page-subtitle">A living archive of what you own, wear and love.</p></div>
+        <div class="header-action-group"><button id="exportBackupBtn" class="icon-button">↥ <span>Backup</span></button><label for="importBackupInput" class="icon-button">↧ <span>Restore</span></label><input type="file" id="importBackupInput" accept=".zip" hidden></div>
+    </div>
+
+    <section id="stylist" class="stylist-hero">
+        <div class="stylist-copy"><p class="eyebrow">PERSONAL AI STYLIST</p><h2>Build the look.<br><em>Wear the mood.</em></h2><p>Choose the occasion and your wardrobe will build three different looks around today's weather, your clean pieces and your recent rotation.</p></div>
+        <div class="stylist-panel">
+            <div id="weatherBadge" class="weather-badge"><span class="weather-icon">◌</span><span id="weatherText">Detecting weather...</span></div>
+            <div class="occasion-selector"><span class="occasion-label">OCCASION</span><div id="occasionButtons" class="occasion-pills"><button class="occasion-pill active" data-occasion="casual">Casual</button><button class="occasion-pill" data-occasion="college">College</button><button class="occasion-pill" data-occasion="party">Party</button><button class="occasion-pill" data-occasion="date">Date</button><button class="occasion-pill" data-occasion="formal">Formal</button><button class="occasion-pill" data-occasion="gym">Gym</button></div></div>
+            <button id="outfitButton" class="outfit-button">✦ Create 3 looks <span>→</span></button>
+        </div>
+    </section>
+
+    <section id="outfitSection" class="outfit-section" style="display:none;">
+        <div class="outfit-header"><div><p class="eyebrow">AI STYLING / 03 LOOKS</p><h2>Pick your look for today.</h2><p id="outfitMessage">Three options, one wardrobe.</p></div><div class="outfit-actions"><button id="newOutfitButton" class="secondary-button">↻ Regenerate 3</button></div></div>
+        <div id="outfitAlternatives" class="outfit-alternatives"></div>
+        <div id="wornConfirmation" class="worn-confirmation" hidden>✓ Today's selected look has been marked as worn.</div>
+    </section>
+
+    <section class="stats-grid">
+        <div class="stat-card"><span>ALL PIECES</span><strong id="totalCount">0</strong><small>in your closet</small></div>
+        <div class="stat-card"><span>READY TO WEAR</span><strong id="cleanCount">0</strong><small>clean pieces</small></div>
+        <div class="stat-card laundry-stat"><span>IN LAUNDRY</span><strong id="dirtyCount">0</strong><small>need attention</small></div>
+    </section>
+
+    <section id="style-dna" class="dashboard-section style-dna-section">
+        <div class="section-title"><div><p class="eyebrow">YOUR STYLE DNA</p><h3>The wardrobe, decoded.</h3></div><span class="section-note">Based on your closet + wear history</span></div>
+        <div class="style-dashboard-grid">
+            <div class="dna-card dna-main"><span class="mini-label">DOMINANT STYLE</span><strong id="dominantStyle">—</strong><p id="dominantStyleText">Add more pieces to reveal your style profile.</p></div>
+            <div class="dna-card"><span class="mini-label">TOP COLOR</span><strong id="topColorInsight">—</strong><p>most represented in your closet</p></div>
+            <div class="dna-card"><span class="mini-label">MOST WORN</span><strong id="mostWornName">—</strong><p id="mostWornCount">—</p></div>
+            <div class="dna-card"><span class="mini-label">ROTATION</span><strong id="rotationInsight">—</strong><p>pieces actively in your rotation</p></div>
+        </div>
+        <div class="color-bars" id="colorBars"></div>
+    </section>
+
+    <section id="favorites" class="dashboard-section">
+        <div class="section-title"><div><p class="eyebrow">YOUR EDIT</p><h3>Favourite pieces</h3></div><span class="section-note">Tap ☆ on any piece to save it here</span></div>
+        <div id="favoriteGrid" class="mini-clothes-grid"></div>
+        <div id="favoriteEmpty" class="section-empty">No favourites yet. Save pieces you reach for most.</div>
+    </section>
+
+    <section id="history" class="history-layout">
+        <div class="dashboard-section history-panel">
+            <div class="section-title"><div><p class="eyebrow">OUTFIT HISTORY</p><h3>What you've worn</h3></div></div>
+            <div id="historyList" class="history-list"></div>
+            <div id="historyEmpty" class="section-empty">Wear a generated look and your rotation will appear here.</div>
+        </div>
+        <div class="dashboard-section calendar-panel">
+            <div class="section-title"><div><p class="eyebrow">ROTATION CALENDAR</p><h3 id="calendarMonth">This month</h3></div></div>
+            <div class="calendar-head"><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span><span>SUN</span></div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+            <div class="calendar-legend"><span><i class="calendar-dot worn"></i> Worn</span><span><i class="calendar-dot today"></i> Today</span></div>
+        </div>
+    </section>
+
+    <section class="analytics-box"><div class="section-title"><div><p class="eyebrow">WARDROBE RHYTHM</p><h3>Your wearing habits</h3></div></div><div class="analytics-grid"><div class="analytics-card"><small>MOST WORN</small><h4 id="leastWornName">—</h4><p id="leastWornCount">—</p></div><div class="analytics-card"><small>UNWORN PIECES</small><h4 id="unwornCount">—</h4><p>waiting for their first outing</p></div><div class="analytics-card"><small>ACTIVE ROTATION</small><h4 id="activeRotation">—</h4><p>pieces worn recently</p></div></div></section>
+
+    <section class="filter-section" id="closet"><div class="search-wrap"><span>⌕</span><input type="text" id="searchInput" class="search-input" placeholder="Search by name, color or category..."></div><div id="filterButtons" class="filter-buttons"><button class="filter-button active" data-filter="all">All</button><button class="filter-button" data-filter="shirts">Tops</button><button class="filter-button" data-filter="pants">Pants</button><button class="filter-button" data-filter="outerwear">Layers</button><button class="filter-button" data-filter="footwear">Footwear</button><button class="filter-button" data-filter="favorites">☆ Favourites</button><button class="filter-button dirty-filter" data-filter="dirty">Laundry <span id="dirtyFilterBadge">0</span></button></div></section>
+    <section id="clothesList" class="clothes-grid"></section>
+    <div id="emptyWardrobe" class="empty-state" style="display:none;"><div class="empty-icon">✦</div><p class="eyebrow">NOTHING HERE YET</p><h2>Your wardrobe is waiting.</h2><p>Add your first piece and start building your digital closet.</p><a href="/add" class="primary-button">Add your first item <span>→</span></a></div>
+</main>
+
+
+<div id="drawerOverlay" class="drawer-overlay"></div>
+<aside id="itemDrawer" class="item-drawer"><button id="closeDrawer" class="drawer-close">×</button><div id="drawerImage" class="drawer-image"></div><p class="eyebrow">WARDROBE PIECE</p><h2 id="drawerName">—</h2><p id="drawerMeta" class="drawer-meta">—</p><div class="drawer-stats"><div><span>WORN</span><strong id="drawerWorn">0×</strong></div><div><span>LAST WORN</span><strong id="drawerLastWorn">—</strong></div><div><span>STATUS</span><strong id="drawerStatus">—</strong></div></div><div class="drawer-actions"><button id="drawerFavorite" class="primary-button">☆ Add to favourites</button><button id="drawerStyleAround" class="secondary-button">✦ Style around this</button></div></aside>
+<div id="styleAroundModal" class="style-around-modal"><div class="style-around-card"><button class="drawer-close" onclick="document.getElementById('styleAroundModal').classList.remove('show')">×</button><p class="eyebrow">STYLE AROUND THIS</p><h2 id="styleAroundTitle">Three looks</h2><div id="styleAroundGrid" class="style-around-grid"></div></div></div>
+
+<div id="editModal" class="modal"><div class="modal-card edit-card"><p class="eyebrow">EDIT PIECE</p><h2>Update clothing</h2><form id="editForm"><input type="hidden" id="editId"><div class="input-group"><label for="editName">Name</label><input type="text" id="editName" required></div><div class="input-group"><label for="editColor">Color</label><input type="text" id="editColor" required></div><div class="input-group"><label for="editImage">Replace Image</label><input type="file" id="editImage" accept="image/*"></div><div class="modal-buttons"><button type="button" id="cancelEditButton" class="secondary-button">Cancel</button><button type="submit" class="primary-button">Save Changes</button></div></form></div></div>
+<script src="/static/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Clothes · WARDROBE.</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/" class="logo">WARDROBE.</a>
+        <div class="nav-actions"><a href="/wardrobe" class="nav-link">My Wardrobe</a><span id="navUserPhone" class="nav-user"></span><button id="logoutButton" class="nav-link nav-logout">Log out</button></div>
+    </nav>
+
+    <main class="add-page">
+        <div class="page-heading add-heading">
+            <div><p class="eyebrow">NEW PIECE</p><h1>Add to Wardrobe</h1><p class="page-subtitle">Give your closet another option.</p></div>
+        </div>
+
+        <form id="clothingForm" class="add-form">
+            <div class="form-section">
+                <span class="step-number">01</span>
+                <div><p class="section-kicker">CATEGORY</p><h2>What are you adding?</h2></div>
+                <div id="categoryGrid" class="category-grid">
+                    <button type="button" class="category-button" data-category="T-Shirt">👕 <span>T-Shirt</span></button>
+                    <button type="button" class="category-button" data-category="Shirt">👔 <span>Shirt</span></button>
+                    <button type="button" class="category-button" data-category="Linen Shirt">👔 <span>Linen Shirt</span></button>
+                    <button type="button" class="category-button" data-category="Zipper Sweatshirt">🧥 <span>Sweatshirt</span></button>
+                    <button type="button" class="category-button" data-category="Zip Hoodie">🧥 <span>Zip Hoodie</span></button>
+                    <button type="button" class="category-button" data-category="Jeans">👖 <span>Jeans</span></button>
+                    <button type="button" class="category-button" data-category="Normal Pants">👖 <span>Normal Pants</span></button>
+                    <button type="button" class="category-button" data-category="Formal Pants">👖 <span>Formal Pants</span></button>
+                    <button type="button" class="category-button" data-category="Cargo Pants">👖 <span>Cargo Pants</span></button>
+                    <button type="button" class="category-button" data-category="Tracks">👖 <span>Tracks</span></button>
+                    <button type="button" class="category-button" data-category="Sneakers">👟 <span>Sneakers</span></button>
+                    <button type="button" class="category-button" data-category="Boots">🥾 <span>Boots</span></button>
+                    <button type="button" class="category-button" data-category="Casual Slippers">🩴 <span>Slippers</span></button>
+                </div>
+            </div>
+
+            <div id="subtypeContainer" class="form-section" style="display:none;">
+                <span class="step-number">02</span>
+                <div><p class="section-kicker">STYLE</p><h2 id="subtypeLabel">Select Type or Fit</h2></div>
+                <div id="subtypeGrid" class="subtype-grid"></div>
+            </div>
+
+            <div class="form-section">
+                <span class="step-number">03</span>
+                <div><p class="section-kicker">DETAILS</p><h2>Make it easy to recognise</h2></div>
+                <div class="input-grid">
+                    <div class="input-group"><label for="clothingName">Name / Label</label><input type="text" id="clothingName" placeholder="e.g. Vintage Oversized Tee" required></div>
+                    <div class="input-group"><label for="clothingColor">Color</label><input type="text" id="clothingColor" placeholder="e.g. Jet Black" required></div>
+                    <div class="input-group input-full"><label for="clothingImage">Item Photo <small>(Optional)</small></label><input type="file" id="clothingImage" accept="image/*"></div>
+                </div>
+            </div>
+
+            <button type="submit" class="primary-button submit-button">✦ Add to Wardrobe <span>→</span></button>
+        </form>
+    </main>
+
+    <div id="successModal" class="modal">
+        <div class="modal-card">
+            <div class="success-icon">✦</div><p class="eyebrow">SAVED</p><h2>Added to Wardrobe</h2><p id="successMessage">Your new item has been saved.</p>
+            <div class="modal-buttons"><button id="addAnotherButton" class="secondary-button">Add Another</button><button id="viewWardrobeButton" class="primary-button">View Wardrobe</button></div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
