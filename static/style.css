@@ -149,3 +149,28 @@ body:before{background:radial-gradient(circle at 8% 10%,rgba(214,180,119,.055),t
 .auth-tab.active { background:rgba(211,182,123,.12); color:#d3b67b; }
 .auth-submit:disabled { opacity:.55; cursor:wait; }
 @media(max-width:900px){.auth-main{grid-template-columns:1fr; max-width:650px; margin:0 auto}.auth-side-copy{display:none}}
+
+/* Weather controls — V10 */
+.weather-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.weather-location-btn {
+    border: 1px solid rgba(255,255,255,.16);
+    background: transparent;
+    color: inherit;
+    padding: 9px 12px;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: opacity .2s ease, border-color .2s ease;
+}
+
+.weather-location-btn:hover {
+    opacity: .85;
+    border-color: rgba(255,255,255,.35);
+}

@@ -21,6 +21,7 @@ let currentSearchQuery = "";
 let currentOutfit = null;
 let currentLooks = [];
 let selectedDrawerItem = null;
+let weatherLocationDenied = false;
 
 async function uploadFile(fileInput) {
     if (!fileInput || !fileInput.files || fileInput.files.length === 0) return "";
@@ -179,61 +180,142 @@ function setupGreeting() {
     textEl.textContent = selected.subtitle;
 }
 
-async function detectAutoWeather() {
+function weatherDetails(temp, code, precipitation = 0) {
+    // WMO weather codes used by Open-Meteo.
+    const rainyCodes = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99];
+    const cloudyCodes = [1, 2, 3, 45, 48];
+    let condition = "Clear";
+    let icon = "☀";
+
+    if (rainyCodes.includes(code) || precipitation > 0.2) {
+        condition = "Rainy";
+        icon = "☔";
+    } else if (cloudyCodes.includes(code)) {
+        condition = code === 1 ? "Mostly clear" : "Cloudy";
+        icon = code === 1 ? "🌤" : "☁";
+    }
+
+    let styleWeather = "mild";
+    if (rainyCodes.includes(code) || precipitation > 0.2) styleWeather = "rainy";
+    else if (temp >= 28) styleWeather = "hot";
+    else if (temp >= 22) styleWeather = "warm";
+    else if (temp >= 15) styleWeather = "mild";
+    else styleWeather = "cool";
+
+    return { styleWeather, condition, icon };
+}
+
+async function fetchWeatherForCoordinates(lat, lon, sourceLabel = "Your location") {
+    const weatherText = document.getElementById("weatherText");
+    const weatherIcon = document.getElementById("weatherIcon");
+    if (!weatherText) return;
+
+    weatherText.textContent = "Checking local weather...";
+    if (weatherIcon) weatherIcon.textContent = "◌";
+
+    const params = new URLSearchParams({
+        latitude: lat,
+        longitude: lon,
+        current: "temperature_2m,apparent_temperature,weather_code,precipitation,wind_speed_10m",
+        timezone: "auto"
+    });
+
+    const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
+    if (!res.ok) throw new Error("Weather request failed");
+    const data = await res.json();
+    const current = data.current || {};
+    const temp = Number(current.temperature_2m);
+    const feels = Number(current.apparent_temperature);
+    const code = Number(current.weather_code);
+    const precipitation = Number(current.precipitation || 0);
+    const details = weatherDetails(temp, code, precipitation);
+
+    currentDetectedWeather = details.styleWeather;
+    if (weatherIcon) weatherIcon.textContent = details.icon;
+    const feelsText = Number.isFinite(feels) ? ` · feels ${Math.round(feels)}°C` : "";
+    weatherText.textContent = `📍 ${sourceLabel} · ${Math.round(temp)}°C${feelsText} · ${details.condition}`;
+    checkDailyOutfit();
+}
+
+function requestBrowserWeather() {
     const weatherText = document.getElementById("weatherText");
     if (!weatherText) return;
 
     if (!navigator.geolocation) {
-        weatherText.textContent = "Weather unavailable (Default: Mild)";
+        weatherLocationDenied = true;
+        weatherText.textContent = "Location unavailable · Enter a city";
         currentDetectedWeather = "mild";
         checkDailyOutfit();
         return;
     }
 
+    weatherText.textContent = "Requesting location permission...";
     navigator.geolocation.getCurrentPosition(
         async position => {
             try {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
-                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
-                
-                if (!res.ok) throw new Error("Weather request failed");
-                const data = await res.json();
-                
-                const temp = data.current_weather.temperature;
-                const code = data.current_weather.weathercode;
-                const rainCodes = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99];
-                
-                if (rainCodes.includes(code)) {
-                    currentDetectedWeather = "rainy";
-                    weatherText.textContent = `${temp}°C · Rainy`;
-                } else if (temp >= 28) {
-                    currentDetectedWeather = "hot";
-                    weatherText.textContent = `${temp}°C · Hot & Sunny`;
-                } else if (temp >= 22) {
-                    currentDetectedWeather = "warm";
-                    weatherText.textContent = `${temp}°C · Warm`;
-                } else if (temp >= 15) {
-                    currentDetectedWeather = "mild";
-                    weatherText.textContent = `${temp}°C · Mild`;
-                } else {
-                    currentDetectedWeather = "cool";
-                    weatherText.textContent = `${temp}°C · Cool`;
-                }
+                await fetchWeatherForCoordinates(
+                    position.coords.latitude,
+                    position.coords.longitude,
+                    "Your location"
+                );
             } catch (err) {
                 console.error("Auto weather error:", err);
-                weatherText.textContent = "Weather offline (Default: Mild)";
+                weatherLocationDenied = true;
+                weatherText.textContent = "Weather unavailable · Enter a city";
                 currentDetectedWeather = "mild";
+                checkDailyOutfit();
             }
-            checkDailyOutfit();
         },
         error => {
             console.warn("Location permission denied or unavailable:", error);
-            weatherText.textContent = "Location off (Default: Mild)";
+            weatherLocationDenied = true;
+            weatherText.textContent = "Location off · Enter a city";
             currentDetectedWeather = "mild";
             checkDailyOutfit();
-        }
+        },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 15 * 60 * 1000 }
     );
+}
+
+async function fetchWeatherForCity(city) {
+    const weatherText = document.getElementById("weatherText");
+    if (!weatherText) return;
+    const name = (city || "").trim();
+    if (!name) return;
+
+    weatherText.textContent = `Finding weather for ${name}...`;
+    try {
+        const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=en&format=json`);
+        if (!geoRes.ok) throw new Error("City lookup failed");
+        const geo = await geoRes.json();
+        const place = geo.results?.[0];
+        if (!place) throw new Error("City not found");
+        const label = [place.name, place.admin1, place.country].filter(Boolean).join(", ");
+        await fetchWeatherForCoordinates(place.latitude, place.longitude, label);
+    } catch (err) {
+        console.error("City weather error:", err);
+        weatherText.textContent = "City not found · Try again";
+        currentDetectedWeather = "mild";
+        checkDailyOutfit();
+    }
+}
+
+function setupWeatherControls() {
+    const button = document.getElementById("weatherLocationBtn");
+    if (!button) return;
+    button.addEventListener("click", () => {
+        if (weatherLocationDenied) {
+            const city = window.prompt("Location is off. Enter your city for weather:");
+            if (city) fetchWeatherForCity(city);
+        } else {
+            requestBrowserWeather();
+        }
+    });
+}
+
+async function detectAutoWeather() {
+    setupWeatherControls();
+    requestBrowserWeather();
 }
 
 async function setupWardrobePage() {

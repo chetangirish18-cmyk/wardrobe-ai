@@ -40,3 +40,11 @@ Every clothes, favorites, laundry state, outfit history, Style DNA result, and u
 ## Production notes
 
 For a public deployment, use a strong random `SESSION_SECRET`, enable `COOKIE_SECURE=true` behind HTTPS, and use persistent production storage for the database and uploaded images.
+
+## V10 weather update
+- Uses browser geolocation only when the user grants permission.
+- Fetches current weather from Open-Meteo using the browser coordinates.
+- Weather is used by the existing outfit scoring system (`hot`, `warm`, `mild`, `cool`, `rainy`).
+- Shows temperature, feels-like temperature, condition, and a location label in the wardrobe stylist.
+- If location permission is unavailable, the weather control can be double-clicked to enter a city manually.
+- Precise coordinates are kept client-side and are not sent to the WARDROBE backend.
