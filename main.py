@@ -4,13 +4,6 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 import sqlite3
-
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except ImportError:
-    psycopg = None
-    dict_row = None
 import random
 import os
 import shutil
@@ -30,34 +23,63 @@ load_dotenv()
 
 app = FastAPI(title="WARDROBE")
 
-@app.middleware("http")
-async def security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    return response
+# ---------------------------------------------------------
+# Persistent session configuration
+# ---------------------------------------------------------
+# The session cookie is signed. The signing key MUST stay the same
+# across app reloads/restarts/deploys, otherwise every existing
+# browser session becomes invalid and the user is sent back to login.
+#
+# Production (Render): set SESSION_SECRET once in Environment Variables
+# and never regenerate/change it on each deploy.
+# Local development: if SESSION_SECRET is not supplied, create a local
+# .session_secret file once and reuse it across uvicorn --reload restarts.
+def _load_session_secret() -> str:
+    configured = (os.getenv("SESSION_SECRET") or "").strip()
+    if configured:
+        return configured
 
-SESSION_SECRET = os.getenv("SESSION_SECRET", "change-this-session-secret")
+    local_secret_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".session_secret")
+    try:
+        if os.path.isfile(local_secret_file):
+            with open(local_secret_file, "r", encoding="utf-8") as f:
+                saved = f.read().strip()
+            if saved:
+                return saved
+
+        generated = secrets.token_urlsafe(64)
+        with open(local_secret_file, "w", encoding="utf-8") as f:
+            f.write(generated)
+        try:
+            os.chmod(local_secret_file, 0o600)
+        except OSError:
+            pass
+        return generated
+    except OSError:
+        # Last-resort fallback. On Render, SESSION_SECRET should always
+        # be configured, so this path should not be used in production.
+        return "change-this-session-secret"
+
+
+SESSION_SECRET = _load_session_secret()
+SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(60 * 60 * 24 * 30)))
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").strip().lower() == "true"
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
     session_cookie="wardrobe_session",
-    max_age=60 * 60 * 24 * 30,
+    max_age=SESSION_MAX_AGE,
+    path="/",
     same_site="lax",
-    https_only=os.getenv("COOKIE_SECURE", "false").lower() == "true",
+    https_only=COOKIE_SECURE,
 )
 
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DB = "wardrobe.db"
 STATIC_DIR = "static"
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", os.path.join(STATIC_DIR, "uploads"))
+UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-# Render uses a shared Postgres database in production. SQLite remains the
-# local-development fallback so the project is still easy to run offline.
-USE_POSTGRES = bool(DATABASE_URL)
 
 # ---------------------------------------------------------
 # Password authentication
@@ -106,130 +128,72 @@ def validate_password(password: str):
 # Database / authentication
 # ---------------------------------------------------------
 def get_db():
-    if USE_POSTGRES:
-        if psycopg is None:
-            raise RuntimeError("psycopg is required when DATABASE_URL is set.")
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=10)
-        return conn
-
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
-def db_execute(conn, sql, params=()):
-    # The application historically used SQLite's ? placeholders. Translate
-    # them centrally so the rest of the code stays database-agnostic.
-    if USE_POSTGRES:
-        sql = sql.replace("?", "%s")
-    return conn.execute(sql, params)
-
-
 def ensure_column(conn, table, column, definition):
-    if USE_POSTGRES:
-        return
-    columns = [r[1] for r in db_execute(conn, f"PRAGMA table_info({table})").fetchall()]
+    columns = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
     if column not in columns:
-        db_execute(conn, f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def init_db():
     conn = get_db()
-    if USE_POSTGRES:
-        statements = [
-            """CREATE TABLE IF NOT EXISTS users (
-                id BIGSERIAL PRIMARY KEY,
-                phone TEXT NOT NULL UNIQUE,
-                password_hash TEXT,
-                created_at TEXT NOT NULL,
-                last_login TEXT NOT NULL
-            )""",
-            """CREATE TABLE IF NOT EXISTS clothes (
-                id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT,
-                category TEXT NOT NULL,
-                subtype TEXT NOT NULL,
-                name TEXT NOT NULL,
-                color TEXT NOT NULL,
-                price DOUBLE PRECISION DEFAULT 0.0,
-                image_url TEXT DEFAULT '',
-                is_dirty INTEGER DEFAULT 0,
-                is_favorite INTEGER DEFAULT 0
-            )""",
-            """CREATE TABLE IF NOT EXISTS worn_history (
-                id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT,
-                clothes_id BIGINT,
-                worn_date TEXT
-            )""",
-            """CREATE TABLE IF NOT EXISTS outfit_history (
-                id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT,
-                top_id BIGINT NOT NULL,
-                bottom_id BIGINT NOT NULL,
-                shoes_id BIGINT NOT NULL,
-                worn_date TEXT NOT NULL,
-                weather TEXT DEFAULT '',
-                occasion TEXT DEFAULT '',
-                feedback INTEGER DEFAULT 0
-            )"""
-        ]
-        for statement in statements:
-            db_execute(conn, statement)
-    else:
-        db_execute(conn, """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                phone TEXT NOT NULL UNIQUE,
-                password_hash TEXT,
-                created_at TEXT NOT NULL,
-                last_login TEXT NOT NULL
-            )
-        """)
-        db_execute(conn, """
-            CREATE TABLE IF NOT EXISTS clothes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                category TEXT NOT NULL,
-                subtype TEXT NOT NULL,
-                name TEXT NOT NULL,
-                color TEXT NOT NULL,
-                price REAL DEFAULT 0.0,
-                image_url TEXT DEFAULT '',
-                is_dirty INTEGER DEFAULT 0,
-                is_favorite INTEGER DEFAULT 0
-            )
-        """)
-        db_execute(conn, """
-            CREATE TABLE IF NOT EXISTS worn_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                clothes_id INTEGER,
-                worn_date TEXT
-            )
-        """)
-        db_execute(conn, """
-            CREATE TABLE IF NOT EXISTS outfit_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                top_id INTEGER NOT NULL,
-                bottom_id INTEGER NOT NULL,
-                shoes_id INTEGER NOT NULL,
-                worn_date TEXT NOT NULL,
-                weather TEXT DEFAULT '',
-                occasion TEXT DEFAULT '',
-                feedback INTEGER DEFAULT 0
-            )
-        """)
-        ensure_column(conn, "users", "password_hash", "TEXT")
-        ensure_column(conn, "clothes", "user_id", "INTEGER")
-        ensure_column(conn, "clothes", "price", "REAL DEFAULT 0.0")
-        ensure_column(conn, "clothes", "image_url", "TEXT DEFAULT ''")
-        ensure_column(conn, "clothes", "is_dirty", "INTEGER DEFAULT 0")
-        ensure_column(conn, "clothes", "is_favorite", "INTEGER DEFAULT 0")
-        ensure_column(conn, "worn_history", "user_id", "INTEGER")
-        ensure_column(conn, "outfit_history", "user_id", "INTEGER")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone TEXT NOT NULL UNIQUE,
+            password_hash TEXT,
+            created_at TEXT NOT NULL,
+            last_login TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS clothes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            category TEXT NOT NULL,
+            subtype TEXT NOT NULL,
+            name TEXT NOT NULL,
+            color TEXT NOT NULL,
+            price REAL DEFAULT 0.0,
+            image_url TEXT DEFAULT '',
+            is_dirty INTEGER DEFAULT 0,
+            is_favorite INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS worn_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            clothes_id INTEGER,
+            worn_date TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS outfit_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            top_id INTEGER NOT NULL,
+            bottom_id INTEGER NOT NULL,
+            shoes_id INTEGER NOT NULL,
+            worn_date TEXT NOT NULL,
+            weather TEXT DEFAULT '',
+            occasion TEXT DEFAULT '',
+            feedback INTEGER DEFAULT 0
+        )
+    """)
+    ensure_column(conn, "users", "password_hash", "TEXT")
+    ensure_column(conn, "clothes", "user_id", "INTEGER")
+    ensure_column(conn, "clothes", "price", "REAL DEFAULT 0.0")
+    ensure_column(conn, "clothes", "image_url", "TEXT DEFAULT ''")
+    ensure_column(conn, "clothes", "is_dirty", "INTEGER DEFAULT 0")
+    ensure_column(conn, "clothes", "is_favorite", "INTEGER DEFAULT 0")
+    ensure_column(conn, "worn_history", "user_id", "INTEGER")
+    ensure_column(conn, "outfit_history", "user_id", "INTEGER")
     conn.commit()
     conn.close()
 
@@ -238,15 +202,33 @@ init_db()
 
 
 def current_user(request: Request):
-    user_id = request.session.get("user_id")
-    if not user_id:
+    # Only the authenticated user id is trusted from the signed session.
+    # The user record is still checked in the database so deleted/invalid
+    # accounts cannot continue using the application.
+    session_user_id = request.session.get("user_id")
+    if not session_user_id:
         raise HTTPException(status_code=401, detail="Please log in first.")
-    conn = get_db()
-    user = db_execute(conn, "SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    conn.close()
-    if not user:
+
+    try:
+        session_user_id = int(session_user_id)
+    except (TypeError, ValueError):
         request.session.clear()
-        raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
+        raise HTTPException(status_code=401, detail="Invalid session. Please log in again.")
+
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE id = ?", (session_user_id,)).fetchone()
+    conn.close()
+
+    if not user:
+        # The signed cookie is valid, but the account no longer exists.
+        # Clearing it is correct in this case; normal server restarts do NOT
+        # reach this branch when the database is persistent.
+        request.session.clear()
+        raise HTTPException(status_code=401, detail="Account session is no longer valid. Please log in again.")
+
+    # Keep the session payload minimal and refresh the phone value from DB.
+    request.session["user_id"] = session_user_id
+    request.session["phone"] = user["phone"]
     return dict(user)
 
 
@@ -310,20 +292,20 @@ def auth_signup(payload: SignupPayload, request: Request):
 
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db()
-    existing = db_execute(conn, "SELECT id, password_hash FROM users WHERE phone = ?", (phone,)).fetchone()
+    existing = conn.execute("SELECT id, password_hash FROM users WHERE phone = ?", (phone,)).fetchone()
     if existing and existing["password_hash"]:
         conn.close()
         raise HTTPException(status_code=409, detail="An account already exists for this mobile number. Please log in.")
 
     if existing:
         uid = int(existing["id"])
-        db_execute(conn, "UPDATE users SET password_hash=?, last_login=? WHERE id=?", (hash_password(payload.password), now, uid))
+        conn.execute("UPDATE users SET password_hash=?, last_login=? WHERE id=?", (hash_password(payload.password), now, uid))
     else:
-        cur = db_execute(conn, 
-            "INSERT INTO users(phone, password_hash, created_at, last_login) VALUES (?, ?, ?, ?) RETURNING id",
+        cur = conn.execute(
+            "INSERT INTO users(phone, password_hash, created_at, last_login) VALUES (?, ?, ?, ?)",
             (phone, hash_password(payload.password), now, now),
         )
-        uid = cur.fetchone()["id"]
+        uid = cur.lastrowid
     conn.commit()
     conn.close()
 
@@ -337,13 +319,13 @@ def auth_signup(payload: SignupPayload, request: Request):
 def auth_login(payload: AuthPayload, request: Request):
     phone = normalize_phone(payload.phone)
     conn = get_db()
-    row = db_execute(conn, "SELECT id, phone, password_hash FROM users WHERE phone = ?", (phone,)).fetchone()
+    row = conn.execute("SELECT id, phone, password_hash FROM users WHERE phone = ?", (phone,)).fetchone()
     if not row or not row["password_hash"] or not verify_password(payload.password, row["password_hash"]):
         conn.close()
         raise HTTPException(status_code=401, detail="Invalid mobile number or password.")
 
     now = datetime.now(timezone.utc).isoformat()
-    db_execute(conn, "UPDATE users SET last_login=? WHERE id=?", (now, row["id"]))
+    conn.execute("UPDATE users SET last_login=? WHERE id=?", (now, row["id"]))
     conn.commit()
     conn.close()
 
@@ -371,18 +353,6 @@ def auth_logout(request: Request):
 # ---------------------------------------------------------
 # Pages
 # ---------------------------------------------------------
-@app.get("/health")
-def health():
-    conn = None
-    try:
-        conn = get_db()
-        db_execute(conn, "SELECT 1").fetchone()
-        return {"ok": True, "database": "postgres" if USE_POSTGRES else "sqlite"}
-    finally:
-        if conn:
-            conn.close()
-
-
 @app.get("/")
 def home(request: Request):
     if request.session.get("user_id"):
@@ -439,11 +409,11 @@ async def upload_image(file: UploadFile = File(...), request: Request = None):
 def add_clothes(item: Clothing, request: Request):
     uid = user_id(request)
     conn = get_db()
-    cur = db_execute(conn, """
+    cur = conn.execute("""
         INSERT INTO clothes(user_id, category, subtype, name, color, price, image_url, is_dirty, is_favorite)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0) RETURNING id
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)
     """, (uid, item.category, item.subtype, item.name, item.color, item.price or 0.0, item.image_url or ""))
-    new_id = cur.fetchone()["id"]; conn.commit(); conn.close()
+    conn.commit(); new_id = cur.lastrowid; conn.close()
     return {"success": True, "id": new_id, "message": "Clothing added successfully"}
 
 
@@ -451,7 +421,7 @@ def add_clothes(item: Clothing, request: Request):
 def update_clothes(item_id: int, item: Clothing, request: Request):
     uid = user_id(request)
     conn = get_db()
-    cur = db_execute(conn, """
+    cur = conn.execute("""
         UPDATE clothes SET category=?, subtype=?, name=?, color=?, price=?, image_url=?
         WHERE id=? AND user_id=?
     """, (item.category, item.subtype, item.name, item.color, item.price or 0.0, item.image_url or "", item_id, uid))
@@ -465,11 +435,11 @@ def update_clothes(item_id: int, item: Clothing, request: Request):
 def toggle_laundry(item_id: int, request: Request):
     uid = user_id(request)
     conn = get_db()
-    row = db_execute(conn, "SELECT is_dirty FROM clothes WHERE id=? AND user_id=?", (item_id, uid)).fetchone()
+    row = conn.execute("SELECT is_dirty FROM clothes WHERE id=? AND user_id=?", (item_id, uid)).fetchone()
     if not row:
         conn.close(); raise HTTPException(status_code=404, detail="Item not found")
     new_state = 0 if row["is_dirty"] else 1
-    db_execute(conn, "UPDATE clothes SET is_dirty=? WHERE id=? AND user_id=?", (new_state, item_id, uid))
+    conn.execute("UPDATE clothes SET is_dirty=? WHERE id=? AND user_id=?", (new_state, item_id, uid))
     conn.commit(); conn.close()
     return {"success": True, "is_dirty": new_state}
 
@@ -478,9 +448,9 @@ def toggle_laundry(item_id: int, request: Request):
 def delete_clothes(item_id: int, request: Request):
     uid = user_id(request)
     conn = get_db()
-    cursor = db_execute(conn, "DELETE FROM clothes WHERE id=? AND user_id=?", (item_id, uid))
-    db_execute(conn, "DELETE FROM worn_history WHERE clothes_id=? AND user_id=?", (item_id, uid))
-    db_execute(conn, "DELETE FROM outfit_history WHERE user_id=? AND (top_id=? OR bottom_id=? OR shoes_id=?)", (uid, item_id, item_id, item_id))
+    cursor = conn.execute("DELETE FROM clothes WHERE id=? AND user_id=?", (item_id, uid))
+    conn.execute("DELETE FROM worn_history WHERE clothes_id=? AND user_id=?", (item_id, uid))
+    conn.execute("DELETE FROM outfit_history WHERE user_id=? AND (top_id=? OR bottom_id=? OR shoes_id=?)", (uid, item_id, item_id, item_id))
     conn.commit(); conn.close()
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="Clothing item not found")
@@ -491,9 +461,9 @@ def delete_clothes(item_id: int, request: Request):
 def get_clothes(request: Request):
     uid = user_id(request)
     conn = get_db()
-    clothes = [dict(x) for x in db_execute(conn, "SELECT * FROM clothes WHERE user_id=? ORDER BY id DESC", (uid,)).fetchall()]
+    clothes = [dict(x) for x in conn.execute("SELECT * FROM clothes WHERE user_id=? ORDER BY id DESC", (uid,)).fetchall()]
     for item in clothes:
-        history = db_execute(conn, "SELECT worn_date FROM worn_history WHERE clothes_id=? AND user_id=? ORDER BY id DESC", (item["id"], uid)).fetchall()
+        history = conn.execute("SELECT worn_date FROM worn_history WHERE clothes_id=? AND user_id=? ORDER BY id DESC", (item["id"], uid)).fetchall()
         item["worn_count"] = len(history)
         item["last_worn"] = history[0]["worn_date"] if history else None
         price = item.get("price") or 0.0
@@ -506,12 +476,12 @@ def wear_outfit(payload: WearPayload, request: Request):
     uid = user_id(request); today_str = date.today().isoformat(); conn = get_db()
     ids = [payload.top_id, payload.bottom_id, payload.shoes_id]
     for cid in ids:
-        ok = db_execute(conn, "SELECT id FROM clothes WHERE id=? AND user_id=?", (cid, uid)).fetchone()
+        ok = conn.execute("SELECT id FROM clothes WHERE id=? AND user_id=?", (cid, uid)).fetchone()
         if not ok:
             conn.close(); raise HTTPException(status_code=400, detail="One or more outfit items do not belong to this account.")
-        db_execute(conn, "INSERT INTO worn_history(user_id, clothes_id, worn_date) VALUES (?, ?, ?)", (uid, cid, today_str))
-    cur = db_execute(conn, "INSERT INTO outfit_history(user_id, top_id, bottom_id, shoes_id, worn_date, weather, occasion) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id", (uid, *ids, today_str, "", ""))
-    oid = cur.fetchone()["id"]; conn.commit(); conn.close()
+        conn.execute("INSERT INTO worn_history(user_id, clothes_id, worn_date) VALUES (?, ?, ?)", (uid, cid, today_str))
+    cur = conn.execute("INSERT INTO outfit_history(user_id, top_id, bottom_id, shoes_id, worn_date, weather, occasion) VALUES (?, ?, ?, ?, ?, ?, ?)", (uid, *ids, today_str, "", ""))
+    conn.commit(); oid = cur.lastrowid; conn.close()
     return {"success": True, "message": "Logged as worn today!", "outfit_id": oid}
 
 
@@ -520,16 +490,16 @@ def save_outfit_history(payload: OutfitPayload, request: Request):
     uid = user_id(request); today_str = date.today().isoformat(); conn = get_db()
     ids = [payload.top_id, payload.bottom_id, payload.shoes_id]
     for cid in ids:
-        if not db_execute(conn, "SELECT id FROM clothes WHERE id=? AND user_id=?", (cid, uid)).fetchone():
+        if not conn.execute("SELECT id FROM clothes WHERE id=? AND user_id=?", (cid, uid)).fetchone():
             conn.close(); raise HTTPException(status_code=400, detail="Invalid wardrobe item")
-    cur = db_execute(conn, "INSERT INTO outfit_history(user_id, top_id, bottom_id, shoes_id, worn_date, weather, occasion) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id", (uid, *ids, today_str, payload.weather or "mild", payload.occasion or "casual"))
-    oid = cur.fetchone()["id"]; conn.commit(); conn.close(); return {"success": True, "outfit_id": oid}
+    cur = conn.execute("INSERT INTO outfit_history(user_id, top_id, bottom_id, shoes_id, worn_date, weather, occasion) VALUES (?, ?, ?, ?, ?, ?, ?)", (uid, *ids, today_str, payload.weather or "mild", payload.occasion or "casual"))
+    conn.commit(); oid = cur.lastrowid; conn.close(); return {"success": True, "outfit_id": oid}
 
 
 @app.get("/outfit-history")
 def get_outfit_history(request: Request, limit: int = 30):
     uid = user_id(request); limit = max(1, min(limit, 100)); conn = get_db()
-    rows = db_execute(conn, """
+    rows = conn.execute("""
         SELECT oh.*, t.name AS top_name, b.name AS bottom_name, s.name AS shoes_name,
                t.image_url AS top_image, b.image_url AS bottom_image, s.image_url AS shoes_image
         FROM outfit_history oh
@@ -544,7 +514,7 @@ def get_outfit_history(request: Request, limit: int = 30):
 @app.post("/outfit-feedback")
 def outfit_feedback(payload: FeedbackPayload, request: Request):
     uid = user_id(request); feedback = 1 if payload.feedback > 0 else -1 if payload.feedback < 0 else 0; conn = get_db()
-    cur = db_execute(conn, "UPDATE outfit_history SET feedback=? WHERE id=? AND user_id=?", (feedback, payload.outfit_id, uid))
+    cur = conn.execute("UPDATE outfit_history SET feedback=? WHERE id=? AND user_id=?", (feedback, payload.outfit_id, uid))
     conn.commit(); conn.close()
     if cur.rowcount == 0: raise HTTPException(status_code=404, detail="Outfit history entry not found")
     return {"success": True, "feedback": feedback}
@@ -552,16 +522,16 @@ def outfit_feedback(payload: FeedbackPayload, request: Request):
 
 @app.put("/clothes/{item_id}/favorite")
 def toggle_favorite(item_id: int, request: Request):
-    uid = user_id(request); conn = get_db(); row = db_execute(conn, "SELECT is_favorite FROM clothes WHERE id=? AND user_id=?", (item_id, uid)).fetchone()
+    uid = user_id(request); conn = get_db(); row = conn.execute("SELECT is_favorite FROM clothes WHERE id=? AND user_id=?", (item_id, uid)).fetchone()
     if not row: conn.close(); raise HTTPException(status_code=404, detail="Item not found")
     new_state = 0 if row["is_favorite"] else 1
-    db_execute(conn, "UPDATE clothes SET is_favorite=? WHERE id=? AND user_id=?", (new_state, item_id, uid)); conn.commit(); conn.close()
+    conn.execute("UPDATE clothes SET is_favorite=? WHERE id=? AND user_id=?", (new_state, item_id, uid)); conn.commit(); conn.close()
     return {"success": True, "is_favorite": new_state}
 
 
 @app.get("/style-dna")
 def style_dna(request: Request):
-    uid = user_id(request); conn = get_db(); clothes = [dict(r) for r in db_execute(conn, "SELECT * FROM clothes WHERE user_id=?", (uid,)).fetchall()]
+    uid = user_id(request); conn = get_db(); clothes = [dict(r) for r in conn.execute("SELECT * FROM clothes WHERE user_id=?", (uid,)).fetchall()]
     if not clothes:
         conn.close(); return {"dominant_style":"Getting to know you","text":"Add your first pieces to reveal your style profile.","top_color":"—","rotation":"0%","colors":[]}
     color_counts = {}
@@ -576,7 +546,7 @@ def style_dna(request: Request):
         if cat in ["Formal Pants","Shirt","Linen Shirt"]: style_counts["Smart Casual"] += 2
         if "plain" in sub or cat in ["Normal Pants","Jeans"]: style_counts["Minimal / Clean"] += 1
     dominant=max(style_counts,key=style_counts.get)
-    active=db_execute(conn, "SELECT COUNT(DISTINCT clothes_id) FROM worn_history WHERE user_id=? AND worn_date>=date('now','-30 day')", (uid,)).fetchone()[0]
+    active=conn.execute("SELECT COUNT(DISTINCT clothes_id) FROM worn_history WHERE user_id=? AND worn_date>=date('now','-30 day')", (uid,)).fetchone()[0]
     conn.close(); rotation=round(active/len(clothes)*100) if clothes else 0
     colors=sorted([{"name":k,"count":v} for k,v in color_counts.items()], key=lambda x:x["count"], reverse=True)[:6]
     return {"dominant_style":dominant,"text":f"Your closet leans {dominant.lower()}, with {top_color} as the strongest color family.","top_color":top_color,"rotation":f"{rotation}%","colors":colors}
@@ -584,7 +554,7 @@ def style_dna(request: Request):
 
 @app.get("/style-around/{item_id}")
 def style_around(item_id: int, request: Request, weather: str="mild", occasion: str="casual"):
-    uid=user_id(request); conn=get_db(); anchor=db_execute(conn, "SELECT * FROM clothes WHERE id=? AND user_id=?",(item_id,uid)).fetchone(); conn.close()
+    uid=user_id(request); conn=get_db(); anchor=conn.execute("SELECT * FROM clothes WHERE id=? AND user_id=?",(item_id,uid)).fetchone(); conn.close()
     if not anchor: raise HTTPException(status_code=404,detail="Item not found")
     return generate_outfits(weather, occasion, anchor_id=item_id, user_id=uid)
 
@@ -595,9 +565,9 @@ def style_around(item_id: int, request: Request, weather: str="mild", occasion: 
 @app.get("/backup")
 def export_backup(request: Request):
     uid=user_id(request); conn=get_db()
-    clothes=[dict(x) for x in db_execute(conn, "SELECT * FROM clothes WHERE user_id=?",(uid,)).fetchall()]
-    history=[dict(x) for x in db_execute(conn, "SELECT * FROM worn_history WHERE user_id=?",(uid,)).fetchall()]
-    outfit_history=[dict(x) for x in db_execute(conn, "SELECT * FROM outfit_history WHERE user_id=?",(uid,)).fetchall()]
+    clothes=[dict(x) for x in conn.execute("SELECT * FROM clothes WHERE user_id=?",(uid,)).fetchall()]
+    history=[dict(x) for x in conn.execute("SELECT * FROM worn_history WHERE user_id=?",(uid,)).fetchall()]
+    outfit_history=[dict(x) for x in conn.execute("SELECT * FROM outfit_history WHERE user_id=?",(uid,)).fetchall()]
     conn.close(); backup_data={"version":2,"clothes":clothes,"history":history,"outfit_history":outfit_history}
     zip_buffer=io.BytesIO()
     with zipfile.ZipFile(zip_buffer,"w",zipfile.ZIP_DEFLATED) as z:
@@ -621,17 +591,17 @@ async def import_backup(file: UploadFile=File(...), request: Request=None):
             if "wardrobe_data.json" not in z.namelist(): raise HTTPException(status_code=400,detail="Invalid backup file")
             data=json.loads(z.read("wardrobe_data.json").decode("utf-8")); clothes=data.get("clothes",[]); history=data.get("history",[]); oh=data.get("outfit_history",[])
             conn=get_db()
-            db_execute(conn, "DELETE FROM outfit_history WHERE user_id=?",(uid,)); db_execute(conn, "DELETE FROM worn_history WHERE user_id=?",(uid,)); db_execute(conn, "DELETE FROM clothes WHERE user_id=?",(uid,))
+            conn.execute("DELETE FROM outfit_history WHERE user_id=?",(uid,)); conn.execute("DELETE FROM worn_history WHERE user_id=?",(uid,)); conn.execute("DELETE FROM clothes WHERE user_id=?",(uid,))
             id_map={}
             for item in clothes:
-                cur=db_execute(conn, "INSERT INTO clothes(user_id,category,subtype,name,color,price,image_url,is_dirty,is_favorite) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",(uid,item.get("category"),item.get("subtype"),item.get("name"),item.get("color"),item.get("price",0),item.get("image_url",""),item.get("is_dirty",0),item.get("is_favorite",0)))
-                id_map[item.get("id")]=cur.fetchone()["id"]
+                cur=conn.execute("INSERT INTO clothes(user_id,category,subtype,name,color,price,image_url,is_dirty,is_favorite) VALUES(?,?,?,?,?,?,?,?,?)",(uid,item.get("category"),item.get("subtype"),item.get("name"),item.get("color"),item.get("price",0),item.get("image_url",""),item.get("is_dirty",0),item.get("is_favorite",0)))
+                id_map[item.get("id")]=cur.lastrowid
             for h in history:
                 if h.get("clothes_id") in id_map:
-                    db_execute(conn, "INSERT INTO worn_history(user_id,clothes_id,worn_date) VALUES(?,?,?)",(uid,id_map[h.get("clothes_id")],h.get("worn_date")))
+                    conn.execute("INSERT INTO worn_history(user_id,clothes_id,worn_date) VALUES(?,?,?)",(uid,id_map[h.get("clothes_id")],h.get("worn_date")))
             for row in oh:
                 if all(x in id_map for x in [row.get("top_id"),row.get("bottom_id"),row.get("shoes_id")]):
-                    db_execute(conn, "INSERT INTO outfit_history(user_id,top_id,bottom_id,shoes_id,worn_date,weather,occasion,feedback) VALUES(?,?,?,?,?,?,?,?)",(uid,id_map[row["top_id"]],id_map[row["bottom_id"]],id_map[row["shoes_id"]],row.get("worn_date"),row.get("weather",""),row.get("occasion",""),row.get("feedback",0)))
+                    conn.execute("INSERT INTO outfit_history(user_id,top_id,bottom_id,shoes_id,worn_date,weather,occasion,feedback) VALUES(?,?,?,?,?,?,?,?)",(uid,id_map[row["top_id"]],id_map[row["bottom_id"]],id_map[row["shoes_id"]],row.get("worn_date"),row.get("weather",""),row.get("occasion",""),row.get("feedback",0)))
             conn.commit(); conn.close()
             user_upload=os.path.join(UPLOAD_DIR,str(uid)); os.makedirs(user_upload,exist_ok=True)
             for name in z.namelist():
@@ -880,15 +850,10 @@ def outfit_reason(item, weather, occasion):
 def build_outfit_candidates(weather="mild", occasion="casual", anchor_id=None, exclude_keys=None, user_id=None):
     exclude_keys = set(k for raw in (exclude_keys or []) for k in str(raw).split(",") if k)
     conn = get_db()
-    clothes = [dict(x) for x in db_execute(conn, "SELECT * FROM clothes WHERE user_id=? AND is_dirty=0", (user_id,)).fetchall()]
+    clothes = [dict(x) for x in conn.execute("SELECT * FROM clothes WHERE user_id=? AND is_dirty=0", (user_id,)).fetchall()]
     # Recent rotation: combinations worn in the last 10 days get a strong penalty.
     recent_pairs = set()
-    recent_sql = (
-        "SELECT top_id,bottom_id,shoes_id FROM outfit_history WHERE user_id=? AND worn_date::date >= CURRENT_DATE - INTERVAL '10 days'"
-        if USE_POSTGRES else
-        "SELECT top_id,bottom_id,shoes_id FROM outfit_history WHERE user_id=? AND worn_date>=date('now','-10 day')"
-    )
-    for row in db_execute(conn, recent_sql, (user_id,)).fetchall():
+    for row in conn.execute("SELECT top_id,bottom_id,shoes_id FROM outfit_history WHERE user_id=? AND worn_date>=date('now','-10 day')", (user_id,)).fetchall():
         recent_pairs.add(f"{row['top_id']}-{row['bottom_id']}-{row['shoes_id']}")
     conn.close()
     tops=[x for x in clothes if x["category"] in ["T-Shirt","Shirt","Linen Shirt","Zipper Sweatshirt","Zip Hoodie"]]
