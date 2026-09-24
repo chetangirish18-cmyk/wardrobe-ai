@@ -1,50 +1,36 @@
-# WARDROBE — Multi-User Password Edition
+# WARDROBE — final production update
 
-WARDROBE is a FastAPI + SQLite wardrobe/styling app with private, user-scoped wardrobe data.
+WARDROBE is a FastAPI + vanilla JavaScript AI wardrobe app with mobile-number/password authentication, user-scoped wardrobe data, weather-aware outfit recommendations, favorites, laundry tracking, outfit history, Style DNA, backup/restore, and optional Telegram integration.
 
-## Authentication
+## Database
 
-There is no OTP or SMS service. Users create an account with:
-- Indian mobile number
-- Password (minimum 8 characters)
+- Local development: SQLite (`wardrobe.db`) when `DATABASE_URL` is empty.
+- Production: PostgreSQL when `DATABASE_URL` is set.
+- This avoids losing accounts/wardrobes when a Render web service redeploys or restarts.
 
-They then log in with the same mobile number + password. Passwords are stored as PBKDF2-SHA256 hashes, never as plain text.
-
-## Local setup
+## Local run
 
 ```bash
-python -m venv venv
-venv\\Scripts\\activate
-python -m pip install -r requirements.txt
-```
-
-Create `.env`:
-
-```env
-SESSION_SECRET=replace-with-a-long-random-secret
-COOKIE_SECURE=false
-```
-
-Run:
-
-```bash
+pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Open `http://127.0.0.1:8000`.
+## Render
 
-## Multi-user isolation
+1. Create a Render Postgres database.
+2. Connect the database to the WARDROBE web service so `DATABASE_URL` is available, or copy the database's Internal Database URL into the web service environment.
+3. Keep `SESSION_SECRET` as the same long random secret across deploys.
+4. Set `COOKIE_SECURE=true`.
+5. Build command: `pip install -r requirements.txt`
+6. Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+7. Open `/health` after deployment. It should report `{"ok":true,"database":"postgres"}`.
 
-Every clothes, favorites, laundry state, outfit history, Style DNA result, and uploaded image is scoped to the logged-in user's ID.
+## Uploads
 
-## Production notes
+Uploaded clothing images are still filesystem files. On Render Free, local files are ephemeral. If persistent image storage is needed, set `UPLOAD_DIR` to a directory on a paid Render persistent disk (for example `/var/data/uploads`) or move uploads to object storage later.
 
-For a public deployment, use a strong random `SESSION_SECRET`, enable `COOKIE_SECURE=true` behind HTTPS, and use persistent production storage for the database and uploaded images.
+## Notes
 
-## V10 weather update
-- Uses browser geolocation only when the user grants permission.
-- Fetches current weather from Open-Meteo using the browser coordinates.
-- Weather is used by the existing outfit scoring system (`hot`, `warm`, `mild`, `cool`, `rainy`).
-- Shows temperature, feels-like temperature, condition, and a location label in the wardrobe stylist.
-- If location permission is unavailable, the weather control can be double-clicked to enter a city manually.
-- Precise coordinates are kept client-side and are not sent to the WARDROBE backend.
+- Passwords are stored as PBKDF2-SHA256 hashes.
+- Wardrobe, favorites, laundry, wear history, outfit history, and recommendations are scoped to the logged-in user.
+- The browser daily-outfit cache now uses the user's local calendar date instead of UTC.
